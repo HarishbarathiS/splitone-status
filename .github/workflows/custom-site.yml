@@ -1,0 +1,87 @@
+name: Custom Site CI
+
+# Publishes site/index.html to GitHub Pages instead of Upptime's generated
+# Sapper site.
+#
+# Why replace it: Upptime's page is fine but its markup is Svelte with
+# content-hashed class names (`svelte-68jxue`), which change on every version
+# bump -- so any CSS override is broken by the next update, and there is no
+# supported custom-stylesheet hook. Owning one HTML file that reads the same
+# committed JSON is less code and cannot break that way.
+#
+# The data is unchanged: Upptime still runs every check and commits
+# history/summary.json. Only the presentation is ours.
+#
+# Upptime's own `site.yml` and `update-template.yml` have been deleted. They had
+# to go together -- site.yml would fight this workflow over the gh-pages branch,
+# and update-template.yml would restore it on its weekly run. The cost is that
+# Upptime version bumps are now manual.
+
+on:
+  # Upptime commits with [skip ci], so a push trigger never fires for its own
+  # updates. workflow_run fires on completion regardless of the commit message,
+  # which is the only reliable hook.
+  workflow_run:
+    workflows: ["Summary CI"]
+    types: [completed]
+  # Fires for our own edits to the page (no [skip ci] in those commits).
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - ".github/workflows/custom-site.yml"
+  schedule:
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.repository }}-pages
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Build and deploy site
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Assemble the site
+        # Three files, no build step. summary.json sits next to index.html so the
+        # page fetches it same-origin -- no CORS, no GitHub API rate limit, and it
+        # keeps working if the repo is ever made private.
+        run: |
+          set -euo pipefail
+          mkdir -p _site
+          cp site/index.html _site/index.html
+          cp history/summary.json _site/summary.json
+
+          # GitHub Pages needs CNAME on the published branch or the custom domain
+          # is dropped on every deploy. Read it from .upptimerc.yml so the domain
+          # has exactly one source of truth.
+          CNAME="$(awk '/^[[:space:]]*cname:/{print $2; exit}' .upptimerc.yml)"
+          if [ -z "$CNAME" ]; then
+            echo "No cname found in .upptimerc.yml -- refusing to publish without it," >&2
+            echo "since that would silently drop the custom domain." >&2
+            exit 1
+          fi
+          printf '%s\n' "$CNAME" > _site/CNAME
+
+          # Jekyll would otherwise ignore files beginning with an underscore.
+          touch _site/.nojekyll
+
+          echo "Publishing $CNAME"
+          ls -la _site
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GH_PAT || github.token }}
+          publish_dir: _site
+          force_orphan: false
+          user_name: "github-actions[bot]"
+          user_email: "github-actions[bot]@users.noreply.github.com"
+          commit_message: "Deploy status page"
