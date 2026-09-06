@@ -1,0 +1,38 @@
+[
+  {
+    "name": "SplitOne",
+    "url": "https://splitone.in",
+    "icon": "https://icons.duckduckgo.com/ip3/splitone.in.ico",
+    "slug": "split-one",
+    "status": "up",
+    "uptime": "100.00%",
+    "uptimeDay": "100.00%",
+    "uptimeWeek": "100.00%",
+    "uptimeMonth": "100.00%",
+    "uptimeYear": "100.00%",
+    "time": 701,
+    "timeDay": 701,
+    "timeWeek": 701,
+    "timeMonth": 701,
+    "timeYear": 701,
+    "dailyMinutesDown": {}
+  },
+  {
+    "name": "API",
+    "url": "https://api.splitone.in/health",
+    "icon": "https://icons.duckduckgo.com/ip3/api.splitone.in.ico",
+    "slug": "api",
+    "status": "up",
+    "uptime": "100.00%",
+    "uptimeDay": "100.00%",
+    "uptimeWeek": "100.00%",
+    "uptimeMonth": "100.00%",
+    "uptimeYear": "100.00%",
+    "time": 417,
+    "timeDay": 417,
+    "timeWeek": 417,
+    "timeMonth": 417,
+    "timeYear": 417,
+    "dailyMinutesDown": {}
+  }
+]
