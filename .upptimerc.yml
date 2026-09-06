@@ -1,31 +1,45 @@
-# Change these first
-owner: upptime # Your GitHub organization or username, where this repository lives
-repo: upptime # The name of this repository
+owner: HarishbarathiS
+repo: splitone-status
 
 sites:
-  - name: Google
-    url: https://www.google.com
-  - name: Wikipedia
-    url: https://en.wikipedia.org
-  - name: Hacker News
-    url: https://news.ycombinator.com
-  - name: Secret Site
-    url: $SECRET_SITE
+  - name: SplitOne
+    url: https://splitone.in
+
+  - name: API
+    # The health endpoint, not the API root: it returns 200 with no auth and
+    # touches nothing downstream, so a Supabase blip does not show as an API
+    # outage. That is the same reason the container healthcheck uses it.
+    url: https://api.splitone.in/health
+
+# Incidents open as GitHub Issues assigned here, which is what actually reaches
+# your phone -- no extra notification service required.
+assignees:
+  - HarishbarathiS
 
 status-website:
-  # Add your custom domain name, or remove the `cname` line if you don't have a domain
-  # Uncomment the `baseUrl` line if you don't have a custom domain and add your repo name there
-  cname: demo.upptime.js.org
-  # baseUrl: /your-repo-name
-  logoUrl: https://raw.githubusercontent.com/upptime/upptime.js.org/master/static/img/icon.svg
-  name: Upptime
-  introTitle: "**Upptime** is the open-source uptime monitor and status page, powered entirely by GitHub."
-  introMessage: This is a sample status page which uses **real-time** data from our [GitHub repository](https://github.com/upptime/upptime). No server required — just GitHub Actions, Issues, and Pages. [**Get your own for free**](https://github.com/upptime/upptime)
+  # GitHub Pages serves the page at this hostname. Requires a CNAME record:
+  #   status.splitone.in  ->  harishbarathis.github.io
+  cname: status.splitone.in
+  name: SplitOne Status
+  introTitle: "SplitOne Status"
+  introMessage: >-
+    Live availability for SplitOne. Checks run every five minutes from GitHub's
+    infrastructure, independently of the servers they are testing -- so this page
+    stays up even when SplitOne does not.
   navbar:
     - title: Status
       href: /
-    - title: GitHub
-      href: https://github.com/$OWNER/$REPO
+    - title: SplitOne
+      href: https://splitone.in
 
-# Upptime also supports notifications, assigning issues, and more
-# See https://upptime.js.org/docs/configuration
+# Defaults are sensible; these are spelled out so the cadence is visible rather
+# than implied. Uptime checks every 5 minutes is the practical floor for GitHub
+# Actions cron -- it queues under load, so treat it as "about 5 minutes".
+workflowSchedule:
+  uptime: "*/5 * * * *"
+  responseTime: "0 23 * * *"
+  graphs: "0 0 * * *"
+  staticSite: "0 1 * * *"
+  summary: "0 0 * * *"
+  updateTemplate: "0 0 * * *"
+  updates: "0 3 * * *"
