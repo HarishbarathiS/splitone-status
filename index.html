@@ -6,7 +6,9 @@
 <title>SplitOne Status</title>
 <meta name="description" content="Live availability for SplitOne. Checked every five minutes from GitHub's infrastructure.">
 <meta name="color-scheme" content="light dark">
-<link rel="icon" href="https://splitone.in/favicon.ico">
+<!-- Inlined, not linked: a status page must not fetch assets from the service
+     it monitors, or the branding breaks exactly when people come looking. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%233b82f6%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%232563eb%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20x%3D%226%22%20y%3D%226%22%20width%3D%2212%22%20height%3D%2212%22%20fill%3D%22url%28%23g%29%22%20opacity%3D%22.9%22%2F%3E%3Crect%20x%3D%2210%22%20y%3D%2210%22%20width%3D%2212%22%20height%3D%2212%22%20fill%3D%22url%28%23g%29%22%20opacity%3D%22.95%22%2F%3E%3Crect%20x%3D%2214%22%20y%3D%2214%22%20width%3D%2212%22%20height%3D%2212%22%20fill%3D%22url%28%23g%29%22%2F%3E%3C%2Fsvg%3E">
 
 <meta property="og:title" content="SplitOne Status">
 <meta property="og:description" content="Live availability for SplitOne.">
@@ -129,14 +131,13 @@
     text-decoration: none;
   }
   .brand-mark {
-    width: 22px; height: 22px;
-    border-radius: 6px;
-    background: var(--ink);
-    color: var(--ground);
-    display: grid; place-items: center;
-    font-family: var(--f-mono);
-    font-size: 12px; font-weight: 700;
+    /* Slightly larger than the old lettermark: the glow filter bleeds past the
+       geometry, so the squares read smaller than their box. */
+    width: 26px; height: 26px;
     flex: none;
+    display: block;
+    /* Pulls the optical centre back in line with the wordmark baseline. */
+    margin-top: -1px;
   }
   .head-link {
     font-size: 13.5px;
@@ -428,7 +429,21 @@
 
   <header>
     <a class="brand" href="https://splitone.in">
-      <span class="brand-mark" aria-hidden="true">S</span>
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+        <defs>
+          <filter id="so-glow">
+            <feGaussianBlur stdDeviation="1.5" result="b"/>
+            <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+          <linearGradient id="so-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#3b82f6"/>
+            <stop offset="100%" stop-color="#2563eb"/>
+          </linearGradient>
+        </defs>
+        <rect x="6" y="6" width="12" height="12" fill="url(#so-grad)" filter="url(#so-glow)" opacity=".9"/>
+        <rect x="10" y="10" width="12" height="12" fill="url(#so-grad)" filter="url(#so-glow)" opacity=".95"/>
+        <rect x="14" y="14" width="12" height="12" fill="url(#so-grad)" filter="url(#so-glow)"/>
+      </svg>
       SplitOne
     </a>
     <a class="head-link" href="https://splitone.in">Back to app &rarr;</a>
