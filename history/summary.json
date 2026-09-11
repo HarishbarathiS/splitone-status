@@ -4,25 +4,27 @@
     "url": "https://splitone.in",
     "icon": "https://icons.duckduckgo.com/ip3/splitone.in.ico",
     "slug": "split-one",
-    "status": "up",
-    "uptime": "100.00%",
-    "uptimeDay": "100.00%",
-    "uptimeWeek": "100.00%",
-    "uptimeMonth": "100.00%",
-    "uptimeYear": "100.00%",
+    "status": "down",
+    "uptime": "99.93%",
+    "uptimeDay": "99.66%",
+    "uptimeWeek": "99.93%",
+    "uptimeMonth": "99.93%",
+    "uptimeYear": "99.93%",
     "time": 734,
     "timeDay": 618,
     "timeWeek": 734,
     "timeMonth": 734,
     "timeYear": 734,
-    "dailyMinutesDown": {}
+    "dailyMinutesDown": {
+      "2026-09-11": 5
+    }
   },
   {
     "name": "API",
     "url": "https://api.splitone.in/health",
     "icon": "https://icons.duckduckgo.com/ip3/api.splitone.in.ico",
     "slug": "api",
-    "status": "up",
+    "status": "down",
     "uptime": "100.00%",
     "uptimeDay": "100.00%",
     "uptimeWeek": "100.00%",
@@ -33,6 +35,8 @@
     "timeWeek": 456,
     "timeMonth": 456,
     "timeYear": 456,
-    "dailyMinutesDown": {}
+    "dailyMinutesDown": {
+      "2026-09-11": 0
+    }
   }
 ]
