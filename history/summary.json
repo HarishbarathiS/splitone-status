@@ -5,17 +5,20 @@
     "icon": "https://icons.duckduckgo.com/ip3/splitone.in.ico",
     "slug": "split-one",
     "status": "up",
-    "uptime": "100.00%",
-    "uptimeDay": "100.00%",
-    "uptimeWeek": "100.00%",
-    "uptimeMonth": "100.00%",
-    "uptimeYear": "100.00%",
-    "time": 701,
-    "timeDay": 701,
-    "timeWeek": 701,
-    "timeMonth": 701,
-    "timeYear": 701,
-    "dailyMinutesDown": {}
+    "uptime": "86.48%",
+    "uptimeDay": "22.45%",
+    "uptimeWeek": "86.48%",
+    "uptimeMonth": "86.48%",
+    "uptimeYear": "86.48%",
+    "time": 719,
+    "timeDay": 626,
+    "timeWeek": 719,
+    "timeMonth": 719,
+    "timeYear": 719,
+    "dailyMinutesDown": {
+      "2026-09-12": 786,
+      "2026-09-11": 331
+    }
   },
   {
     "name": "API",
@@ -23,16 +26,19 @@
     "icon": "https://icons.duckduckgo.com/ip3/api.splitone.in.ico",
     "slug": "api",
     "status": "up",
-    "uptime": "100.00%",
-    "uptimeDay": "100.00%",
-    "uptimeWeek": "100.00%",
-    "uptimeMonth": "100.00%",
-    "uptimeYear": "100.00%",
-    "time": 417,
-    "timeDay": 417,
-    "timeWeek": 417,
-    "timeMonth": 417,
-    "timeYear": 417,
-    "dailyMinutesDown": {}
+    "uptime": "86.54%",
+    "uptimeDay": "22.78%",
+    "uptimeWeek": "86.54%",
+    "uptimeMonth": "86.54%",
+    "uptimeYear": "86.54%",
+    "time": 442,
+    "timeDay": 363,
+    "timeWeek": 442,
+    "timeMonth": 442,
+    "timeYear": 442,
+    "dailyMinutesDown": {
+      "2026-09-12": 786,
+      "2026-09-11": 326
+    }
   }
 ]
