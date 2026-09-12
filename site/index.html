@@ -381,39 +381,6 @@
     .strip[data-bars="30"] .day:nth-child(-n+15) { display: none; }
   }
 
-  /* ---------- 24h track ---------- */
-
-  /* The 24h view is one continuous ribbon, not 24 tiles. A ten-hour outage is a
-     single event: cutting it into ten identical blocks reads as a fence, and it
-     implies hour-level resolution the source data does not have -- the timeline
-     records the minute a status changed, so the ribbon can show exactly that. */
-  .track {
-    display: flex;
-    height: 30px;
-    border-radius: 5px;
-    overflow: hidden;
-    background: var(--nodata);
-  }
-  .seg {
-    min-width: 2px;
-    background: var(--ok-bar);
-  }
-  .seg.nodata   { background: var(--nodata); }
-  .seg.degraded { background: var(--degr-bar); }
-  .seg.down     { background: var(--down-bar); }
-  .seg:hover    { filter: brightness(1.15); }
-
-  /* Five marks at the quarter points. They line up because the ribbon is
-     proportional to time and every label is the same width in the mono face. */
-  .ticks {
-    display: flex;
-    justify-content: space-between;
-    font-family: var(--f-mono);
-    font-size: 10.5px;
-    color: var(--muted);
-    margin-top: 7px;
-  }
-
   /* Stands in for the strip when a window has nothing behind it, so the card
      keeps its height instead of collapsing as you switch ranges. */
   .strip-note {
@@ -545,18 +512,24 @@
   // a lie, and a status page that lies about the past is worth nothing.
   var MONITORING_SINCE = "2026-09-06";
 
-  // Windows the switcher offers. `days` is how much of the strip is drawn, not
-  // how much data exists: 1y is capped at 90 bars because 365 cannot be told
-  // apart at this width, and `uptimeYear` still reports the true figure.
+  // Every window draws the same 90-bar strip; only the span of one bar changes
+  // -- 16 minutes at 24h, ~1h50m at 7d, 8 hours at 30d, a day at 90. Keeping the
+  // bar count fixed is what makes the views comparable at a glance.
+  //
+  // 1y and all stop at 90 days because 365 bars cannot be told apart at this
+  // width. The uptime figure beside them still reports the true year.
+  var BARS = 90;
+
   var RANGES = {
-    Day:   { hours: 24 },
-    Week:  { days: 7,   from: "7 days ago",   to: "today" },
-    Month: { days: 30,  from: "30 days ago",  to: "today" },
-    Year:  { days: 90,  from: "90 days ago",  to: "today" },
-    "":    { days: 90,  from: "90 days ago",  to: "today" }
+    Day:   { days: 1,  from: "24 hours ago", to: "now" },
+    Week:  { days: 7,  from: "7 days ago",   to: "today" },
+    Month: { days: 30, from: "30 days ago",  to: "today" },
+    Year:  { days: 90, from: "90 days ago",  to: "today" },
+    "":    { days: 90, from: "90 days ago",  to: "today" }
   };
 
   var HOUR = 3600 * 1000;
+  var DAY = 24 * HOUR;
 
   var state = { range: "Week", sites: [], timeline: null };
 
@@ -579,38 +552,12 @@
 
   function cfg() { return RANGES[state.range] || RANGES[""]; }
 
-  /* ---------- daily bars: 7d, 30d, 1y, all ---------- */
-
-  // Upptime records only downtime, so a day absent from dailyMinutesDown was a
-  // day with no incident. That inference is only valid once monitoring started,
-  // which is what MONITORING_SINCE guards.
-  function buildDays(site, count) {
-    var out = [];
-    var today = new Date();
-    for (var i = count - 1; i >= 0; i--) {
-      var d = new Date(today);
-      d.setDate(d.getDate() - i);
-      var key = isoDay(d);
-      if (key < MONITORING_SINCE) {
-        out.push({ cls: "nodata", title: key + " — no data" });
-        continue;
-      }
-      var down = (site.dailyMinutesDown && site.dailyMinutesDown[key]) || 0;
-      var cls = down === 0 ? "" : (down < 30 ? "degraded" : "down");
-      out.push({
-        cls: cls,
-        title: key + " — " + (down === 0 ? "no downtime" : down + " min down")
-      });
-    }
-    return out;
-  }
-
-  /* ---------- 24h track ---------- */
+  /* ---------- bars ---------- */
 
   // timeline.json lists status CHANGES, not samples: each entry holds until the
   // next one, and the last holds until now. Read as spans, an outage is one
-  // measured interval rather than something inferred from whichever checks
-  // happened to land where.
+  // measured interval, so a bucket's downtime is counted rather than inferred
+  // from whichever checks happened to land inside it.
   function spansFor(slug) {
     var points = state.timeline && state.timeline.monitors && state.timeline.monitors[slug];
     if (!points || !points.length) return null;
@@ -629,63 +576,91 @@
     return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
 
-  function fmtLength(ms) {
-    var mins = Math.round(ms / 60000);
-    if (mins < 60) return mins + " min";
-    var h = Math.floor(mins / 60);
-    var m = mins % 60;
-    return h + "h" + (m ? " " + m + "m" : "");
+  function label(from, to, size) {
+    if (size >= DAY) return isoDay(new Date((from + to) / 2));
+    return new Date(from).toLocaleDateString([], { month: "short", day: "numeric" }) +
+      " " + fmtTime(from) + "–" + fmtTime(to);
   }
 
-  function segClass(status) {
-    if (status === "up") return "";
-    return status === "degraded" ? "degraded" : "down";
-  }
-
-  function segWord(cls) {
-    if (cls === "") return "Up";
-    if (cls === "degraded") return "Degraded";
-    return cls === "down" ? "Down" : "No data";
-  }
-
-  // Clips the spans to the visible window and fills whatever they do not cover
-  // with "no data", so the ribbon always accounts for the full 24 hours.
-  function buildTrack(site) {
-    var spans = spansFor(site.slug);
-    if (!spans) return null;
-
-    var end = Date.now();
-    var start = end - cfg().hours * HOUR;
-    var segs = [];
-    var cursor = start;
-
-    spans.forEach(function (sp) {
-      var lo = Math.max(sp.from, start);
-      var hi = Math.min(sp.to, end);
-      if (hi <= lo) return;
-      if (lo > cursor) segs.push({ from: cursor, to: lo, cls: "nodata" });
-      segs.push({ from: lo, to: hi, cls: segClass(sp.s) });
-      cursor = hi;
-    });
-    if (cursor < end) segs.push({ from: cursor, to: end, cls: "nodata" });
-    if (!segs.length) return null;
-
-    // Upptime re-commits an unchanged status now and then, which would otherwise
-    // draw a seam mid-outage and split one incident across two tooltips.
-    var merged = [segs[0]];
-    for (var i = 1; i < segs.length; i++) {
-      var last = merged[merged.length - 1];
-      if (segs[i].cls === last.cls) last.to = segs[i].to;
-      else merged.push(segs[i]);
+  // A bucket inside the timeline's reach is measured to the minute.
+  function fromSpans(spans, from, to) {
+    var covered = 0;
+    var bad = 0;
+    for (var i = 0; i < spans.length; i++) {
+      var lo = Math.max(spans[i].from, from);
+      var hi = Math.min(spans[i].to, to);
+      if (hi <= lo) continue;
+      covered += hi - lo;
+      if (spans[i].s !== "up") bad += hi - lo;
     }
-    return merged;
+    if (covered < (to - from) / 2) return null; // Too little to call; fall back.
+    if (bad === 0) return { cls: "", note: "no downtime" };
+    return {
+      cls: bad * 2 < covered ? "degraded" : "down",
+      note: Math.max(1, Math.round(bad / 60000)) + " min down"
+    };
   }
 
-  function ticks() {
+  // Minutes of downtime the spans already account for, per UTC day -- the same
+  // day keys dailyMinutesDown uses.
+  function measuredByDay(spans) {
+    var map = {};
+    if (!spans) return map;
+    spans.forEach(function (sp) {
+      if (sp.s === "up") return;
+      var t = sp.from;
+      while (t < sp.to) {
+        var d = new Date(t);
+        var dayEnd = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1);
+        var hi = Math.min(dayEnd, sp.to);
+        var key = isoDay(new Date(t));
+        map[key] = (map[key] || 0) + (hi - t) / 60000;
+        t = hi;
+      }
+    });
+    return map;
+  }
+
+  // Beyond the timeline's reach, summary.json knows only whole days. Upptime
+  // records just the downtime, so a day absent from dailyMinutesDown had no
+  // incident -- an inference that only holds once monitoring started, which
+  // MONITORING_SINCE guards. Every bucket inside such a day carries that day's
+  // verdict, the same claim the old one-bar-per-day strip made.
+  //
+  // Downtime the spans already measured is subtracted first. Without that, a day
+  // the timeline covers only part of is charged twice -- once measured, once as
+  // a whole-day verdict -- and the strip grows a second red bar for an outage
+  // that happened once.
+  function fromDays(site, measured, from, to) {
+    var key = isoDay(new Date((from + to) / 2));
+    if (key < MONITORING_SINCE) return { cls: "nodata", note: "no data" };
+    var total = (site.dailyMinutesDown && site.dailyMinutesDown[key]) || 0;
+    var down = Math.max(0, total - Math.round(measured[key] || 0));
+    if (down === 0) return { cls: "", note: "no downtime" };
+    return {
+      cls: down < 30 ? "degraded" : "down",
+      note: down + " min down on " + key
+    };
+  }
+
+  function buildBars(site) {
+    var c = cfg();
     var end = Date.now();
+    var size = c.days * DAY / BARS;
+    var spans = spansFor(site.slug);
+    var measured = measuredByDay(spans);
+    // The timeline is trimmed to a rolling window at build time, so it speaks
+    // for recent buckets only; older ones are day-resolution.
+    var reach = spans ? spans[0].from : Infinity;
+
     var out = [];
-    for (var i = 4; i >= 1; i--) out.push(fmtTime(end - i * 6 * HOUR));
-    out.push("now");
+    for (var i = BARS - 1; i >= 0; i--) {
+      var to = end - i * size;
+      var from = to - size;
+      var v = from >= reach ? fromSpans(spans, from, to) : null;
+      if (!v) v = fromDays(site, measured, from, to);
+      out.push({ cls: v.cls, title: label(from, to, size) + " — " + v.note });
+    }
     return out;
   }
 
@@ -722,48 +697,11 @@
     return "down";
   }
 
-  function renderTrack(site) {
-    var segs = buildTrack(site);
-    if (!segs) {
-      return '<div class="strip-note">Hour-by-hour detail isn&rsquo;t available yet.</div>' +
-             '<div class="ticks"><span>24 hours ago</span><span>now</span></div>';
-    }
-    var total = segs[segs.length - 1].to - segs[0].from;
-    return '' +
-      '<div class="track" role="img" aria-label="' + esc(site.name) +
-        ' status over the last 24 hours">' +
-        segs.map(function (g) {
-          // flex-grow carries the proportion, so the ribbon stays true to the
-          // clock at any width without a single hard-coded pixel.
-          return '<div class="seg ' + g.cls + '" style="flex: ' +
-            ((g.to - g.from) / total).toFixed(6) + ' 0 0" title="' +
-            esc(segWord(g.cls) + " · " + fmtTime(g.from) + " – " + fmtTime(g.to) +
-                " (" + fmtLength(g.to - g.from) + ")") + '"></div>';
-        }).join("") +
-      '</div>' +
-      '<div class="ticks">' + ticks().map(function (t) {
-        return '<span>' + esc(t) + '</span>';
-      }).join("") + '</div>';
-  }
-
-  function renderStrip(site, c) {
-    var bars = buildDays(site, c.days);
-    return '' +
-      '<div class="strip" data-bars="' + bars.length + '" role="img" aria-label="' +
-        esc(site.name) + ' status from ' + esc(c.from) + ' to ' + esc(c.to) + '">' +
-        bars.map(function (b) {
-          return '<div class="day ' + b.cls + '" title="' + esc(b.title) + '"></div>';
-        }).join("") +
-      '</div>' +
-      '<div class="strip-legend"><span>' + esc(c.from) + '</span>' +
-        '<span class="mid">' + esc(c.to) + '</span></div>';
-  }
-
   function renderCard(site) {
     var cls = statusClass(site.status);
     var c = cfg();
     var ms = timeFor(site);
-    var chart = c.hours ? renderTrack(site) : renderStrip(site, c);
+    var bars = buildBars(site);
 
     return '' +
       '<article class="card">' +
@@ -786,7 +724,14 @@
             '</div>' +
           '</div>' +
         '</div>' +
-        chart +
+        '<div class="strip" data-bars="' + bars.length + '" role="img" aria-label="' +
+          esc(site.name) + ' status from ' + esc(c.from) + ' to ' + esc(c.to) + '">' +
+          bars.map(function (b) {
+            return '<div class="day ' + b.cls + '" title="' + esc(b.title) + '"></div>';
+          }).join("") +
+        '</div>' +
+        '<div class="strip-legend"><span>' + esc(c.from) + '</span>' +
+          '<span class="mid">' + esc(c.to) + '</span></div>' +
       '</article>';
   }
 
