@@ -381,6 +381,39 @@
     .strip[data-bars="30"] .day:nth-child(-n+15) { display: none; }
   }
 
+  /* ---------- 24h track ---------- */
+
+  /* The 24h view is one continuous ribbon, not 24 tiles. A ten-hour outage is a
+     single event: cutting it into ten identical blocks reads as a fence, and it
+     implies hour-level resolution the source data does not have -- the timeline
+     records the minute a status changed, so the ribbon can show exactly that. */
+  .track {
+    display: flex;
+    height: 30px;
+    border-radius: 5px;
+    overflow: hidden;
+    background: var(--nodata);
+  }
+  .seg {
+    min-width: 2px;
+    background: var(--ok-bar);
+  }
+  .seg.nodata   { background: var(--nodata); }
+  .seg.degraded { background: var(--degr-bar); }
+  .seg.down     { background: var(--down-bar); }
+  .seg:hover    { filter: brightness(1.15); }
+
+  /* Five marks at the quarter points. They line up because the ribbon is
+     proportional to time and every label is the same width in the mono face. */
+  .ticks {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--f-mono);
+    font-size: 10.5px;
+    color: var(--muted);
+    margin-top: 7px;
+  }
+
   /* Stands in for the strip when a window has nothing behind it, so the card
      keeps its height instead of collapsing as you switch ranges. */
   .strip-note {
@@ -516,7 +549,7 @@
   // how much data exists: 1y is capped at 90 bars because 365 cannot be told
   // apart at this width, and `uptimeYear` still reports the true figure.
   var RANGES = {
-    Day:   { hours: 24, from: "24 hours ago", to: "now" },
+    Day:   { hours: 24 },
     Week:  { days: 7,   from: "7 days ago",   to: "today" },
     Month: { days: 30,  from: "30 days ago",  to: "today" },
     Year:  { days: 90,  from: "90 days ago",  to: "today" },
@@ -524,9 +557,6 @@
   };
 
   var HOUR = 3600 * 1000;
-  // An hour reads as degraded rather than down below this much disruption --
-  // the daily bars make the same distinction at 30 minutes in a day.
-  var HOUR_DEGRADED_MS = 6 * 60 * 1000;
 
   var state = { range: "Week", sites: [], timeline: null };
 
@@ -575,12 +605,12 @@
     return out;
   }
 
-  /* ---------- hourly bars: 24h ---------- */
+  /* ---------- 24h track ---------- */
 
   // timeline.json lists status CHANGES, not samples: each entry holds until the
-  // next one, and the last holds until now. Turning them into spans first means
-  // an hour's downtime is measured, not guessed from whichever checks happened
-  // to land inside it.
+  // next one, and the last holds until now. Read as spans, an outage is one
+  // measured interval rather than something inferred from whichever checks
+  // happened to land where.
   function spansFor(slug) {
     var points = state.timeline && state.timeline.monitors && state.timeline.monitors[slug];
     if (!points || !points.length) return null;
@@ -595,44 +625,67 @@
     return spans.length ? spans : null;
   }
 
-  function buildHours(site) {
+  function fmtTime(ts) {
+    return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+
+  function fmtLength(ms) {
+    var mins = Math.round(ms / 60000);
+    if (mins < 60) return mins + " min";
+    var h = Math.floor(mins / 60);
+    var m = mins % 60;
+    return h + "h" + (m ? " " + m + "m" : "");
+  }
+
+  function segClass(status) {
+    if (status === "up") return "";
+    return status === "degraded" ? "degraded" : "down";
+  }
+
+  function segWord(cls) {
+    if (cls === "") return "Up";
+    if (cls === "degraded") return "Degraded";
+    return cls === "down" ? "Down" : "No data";
+  }
+
+  // Clips the spans to the visible window and fills whatever they do not cover
+  // with "no data", so the ribbon always accounts for the full 24 hours.
+  function buildTrack(site) {
     var spans = spansFor(site.slug);
     if (!spans) return null;
 
-    var count = cfg().hours;
-    // Buckets align to the clock hour, so a bar's label is an hour a person
-    // would recognise rather than a rolling "37 minutes ago" window.
-    var edge = new Date();
-    edge.setMinutes(0, 0, 0);
-    var end = edge.getTime() + HOUR;
+    var end = Date.now();
+    var start = end - cfg().hours * HOUR;
+    var segs = [];
+    var cursor = start;
 
-    var out = [];
-    for (var i = count - 1; i >= 0; i--) {
-      var bStart = end - (i + 1) * HOUR;
-      var bEnd = bStart + HOUR;
-      var covered = 0;
-      var bad = 0;
+    spans.forEach(function (sp) {
+      var lo = Math.max(sp.from, start);
+      var hi = Math.min(sp.to, end);
+      if (hi <= lo) return;
+      if (lo > cursor) segs.push({ from: cursor, to: lo, cls: "nodata" });
+      segs.push({ from: lo, to: hi, cls: segClass(sp.s) });
+      cursor = hi;
+    });
+    if (cursor < end) segs.push({ from: cursor, to: end, cls: "nodata" });
+    if (!segs.length) return null;
 
-      for (var j = 0; j < spans.length; j++) {
-        var lo = Math.max(spans[j].from, bStart);
-        var hi = Math.min(spans[j].to, bEnd);
-        if (hi <= lo) continue;
-        covered += hi - lo;
-        if (spans[j].s !== "up") bad += hi - lo;
-      }
-
-      var label = new Date(bStart).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      if (covered === 0) {
-        out.push({ cls: "nodata", title: label + " — no data" });
-      } else if (bad === 0) {
-        out.push({ cls: "", title: label + " — no downtime" });
-      } else {
-        out.push({
-          cls: bad < HOUR_DEGRADED_MS ? "degraded" : "down",
-          title: label + " — " + Math.round(bad / 60000) + " min down"
-        });
-      }
+    // Upptime re-commits an unchanged status now and then, which would otherwise
+    // draw a seam mid-outage and split one incident across two tooltips.
+    var merged = [segs[0]];
+    for (var i = 1; i < segs.length; i++) {
+      var last = merged[merged.length - 1];
+      if (segs[i].cls === last.cls) last.to = segs[i].to;
+      else merged.push(segs[i]);
     }
+    return merged;
+  }
+
+  function ticks() {
+    var end = Date.now();
+    var out = [];
+    for (var i = 4; i >= 1; i--) out.push(fmtTime(end - i * 6 * HOUR));
+    out.push("now");
     return out;
   }
 
@@ -669,24 +722,48 @@
     return "down";
   }
 
+  function renderTrack(site) {
+    var segs = buildTrack(site);
+    if (!segs) {
+      return '<div class="strip-note">Hour-by-hour detail isn&rsquo;t available yet.</div>' +
+             '<div class="ticks"><span>24 hours ago</span><span>now</span></div>';
+    }
+    var total = segs[segs.length - 1].to - segs[0].from;
+    return '' +
+      '<div class="track" role="img" aria-label="' + esc(site.name) +
+        ' status over the last 24 hours">' +
+        segs.map(function (g) {
+          // flex-grow carries the proportion, so the ribbon stays true to the
+          // clock at any width without a single hard-coded pixel.
+          return '<div class="seg ' + g.cls + '" style="flex: ' +
+            ((g.to - g.from) / total).toFixed(6) + ' 0 0" title="' +
+            esc(segWord(g.cls) + " · " + fmtTime(g.from) + " – " + fmtTime(g.to) +
+                " (" + fmtLength(g.to - g.from) + ")") + '"></div>';
+        }).join("") +
+      '</div>' +
+      '<div class="ticks">' + ticks().map(function (t) {
+        return '<span>' + esc(t) + '</span>';
+      }).join("") + '</div>';
+  }
+
+  function renderStrip(site, c) {
+    var bars = buildDays(site, c.days);
+    return '' +
+      '<div class="strip" data-bars="' + bars.length + '" role="img" aria-label="' +
+        esc(site.name) + ' status from ' + esc(c.from) + ' to ' + esc(c.to) + '">' +
+        bars.map(function (b) {
+          return '<div class="day ' + b.cls + '" title="' + esc(b.title) + '"></div>';
+        }).join("") +
+      '</div>' +
+      '<div class="strip-legend"><span>' + esc(c.from) + '</span>' +
+        '<span class="mid">' + esc(c.to) + '</span></div>';
+  }
+
   function renderCard(site) {
     var cls = statusClass(site.status);
     var c = cfg();
-    var bars = c.hours ? buildHours(site) : buildDays(site, c.days);
     var ms = timeFor(site);
-
-    var strip;
-    if (!bars) {
-      strip = '<div class="strip-note">Hour-by-hour detail isn&rsquo;t available yet.</div>';
-    } else {
-      strip =
-        '<div class="strip" data-bars="' + bars.length + '" role="img" aria-label="' +
-          esc(site.name) + ' status from ' + esc(c.from) + ' to ' + esc(c.to) + '">' +
-          bars.map(function (b) {
-            return '<div class="day ' + b.cls + '" title="' + esc(b.title) + '"></div>';
-          }).join("") +
-        '</div>';
-    }
+    var chart = c.hours ? renderTrack(site) : renderStrip(site, c);
 
     return '' +
       '<article class="card">' +
@@ -709,9 +786,7 @@
             '</div>' +
           '</div>' +
         '</div>' +
-        strip +
-        '<div class="strip-legend"><span>' + esc(c.from) + '</span>' +
-          '<span class="mid">' + esc(c.to) + '</span></div>' +
+        chart +
       '</article>';
   }
 
