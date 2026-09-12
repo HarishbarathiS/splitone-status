@@ -50,16 +50,30 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # build-timeline.js reads the commit history of history/*.yml -- the
+          # only place sub-day status lives -- so the default depth-1 checkout
+          # would leave the 24h view with nothing to draw. Upptime commits those
+          # files on status change rather than per check, so the history stays
+          # small (single-digit commits a day).
+          fetch-depth: 0
 
       - name: Assemble the site
-        # Three files, no build step. summary.json sits next to index.html so the
-        # page fetches it same-origin -- no CORS, no GitHub API rate limit, and it
+        # Four files, no build step. The JSON sits next to index.html so the page
+        # fetches it same-origin -- no CORS, no GitHub API rate limit, and it
         # keeps working if the repo is ever made private.
         run: |
           set -euo pipefail
           mkdir -p _site
           cp site/index.html _site/index.html
           cp history/summary.json _site/summary.json
+
+          # Powers the 24h strip. Non-fatal by design: every other window reads
+          # from summary.json, and the page degrades to a note if this is
+          # missing -- losing the whole status page over one view would be the
+          # worse failure.
+          node site/build-timeline.js _site/timeline.json || \
+            echo "Timeline build failed; the 24h view will show no data." >&2
 
           # GitHub Pages needs CNAME on the published branch or the custom domain
           # is dropped on every deploy. Read it from .upptimerc.yml so the domain

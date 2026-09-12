@@ -332,7 +332,8 @@
     letter-spacing: -0.02em;
     font-variant-numeric: tabular-nums;
   }
-  .metric-value.ok { color: var(--ok); }
+  .metric-value.ok  { color: var(--ok); }
+  .metric-value.bad { color: var(--down); }
   .metric-value .unit { font-size: 11.5px; color: var(--muted); margin-left: 1px; }
 
   /* ---------- uptime bar strip ---------- */
@@ -367,13 +368,27 @@
   }
   .strip-legend .mid { color: var(--muted); }
 
-  /* Hide older days first on narrow screens rather than squashing them to
-     invisible slivers. 90 bars at 320px would be sub-pixel. */
+  /* Hide older bars first on narrow screens rather than squashing them to
+     invisible slivers. 90 bars at 320px would be sub-pixel.
+     Scoped by bar count: an unscoped :nth-child(-n+45) would blank the entire
+     24-bar hourly strip, which is well within its width at any size. */
   @media (max-width: 640px) {
-    .day:nth-child(-n+45) { display: none; }
+    .strip[data-bars="90"] .day:nth-child(-n+45) { display: none; }
+    .strip[data-bars="30"] .day:nth-child(-n+10) { display: none; }
   }
   @media (max-width: 420px) {
-    .day:nth-child(-n+60) { display: none; }
+    .strip[data-bars="90"] .day:nth-child(-n+60) { display: none; }
+    .strip[data-bars="30"] .day:nth-child(-n+15) { display: none; }
+  }
+
+  /* Stands in for the strip when a window has nothing behind it, so the card
+     keeps its height instead of collapsing as you switch ranges. */
+  .strip-note {
+    display: flex;
+    align-items: center;
+    height: 30px;
+    font-size: 13px;
+    color: var(--muted);
   }
 
   /* ---------- states ---------- */
@@ -497,8 +512,23 @@
   // a lie, and a status page that lies about the past is worth nothing.
   var MONITORING_SINCE = "2026-09-06";
 
-  var DAYS = 90;
-  var state = { range: "Week", sites: [] };
+  // Windows the switcher offers. `days` is how much of the strip is drawn, not
+  // how much data exists: 1y is capped at 90 bars because 365 cannot be told
+  // apart at this width, and `uptimeYear` still reports the true figure.
+  var RANGES = {
+    Day:   { hours: 24, from: "24 hours ago", to: "now" },
+    Week:  { days: 7,   from: "7 days ago",   to: "today" },
+    Month: { days: 30,  from: "30 days ago",  to: "today" },
+    Year:  { days: 90,  from: "90 days ago",  to: "today" },
+    "":    { days: 90,  from: "90 days ago",  to: "today" }
+  };
+
+  var HOUR = 3600 * 1000;
+  // An hour reads as degraded rather than down below this much disruption --
+  // the daily bars make the same distinction at 30 minutes in a day.
+  var HOUR_DEGRADED_MS = 6 * 60 * 1000;
+
+  var state = { range: "Week", sites: [], timeline: null };
 
   var el = {
     banner: document.getElementById("banner"),
@@ -517,35 +547,120 @@
 
   function isoDay(d) { return d.toISOString().slice(0, 10); }
 
+  function cfg() { return RANGES[state.range] || RANGES[""]; }
+
+  /* ---------- daily bars: 7d, 30d, 1y, all ---------- */
+
   // Upptime records only downtime, so a day absent from dailyMinutesDown was a
   // day with no incident. That inference is only valid once monitoring started,
   // which is what MONITORING_SINCE guards.
-  function buildDays(site) {
+  function buildDays(site, count) {
     var out = [];
     var today = new Date();
-    for (var i = DAYS - 1; i >= 0; i--) {
+    for (var i = count - 1; i >= 0; i--) {
       var d = new Date(today);
       d.setDate(d.getDate() - i);
       var key = isoDay(d);
       if (key < MONITORING_SINCE) {
-        out.push({ date: key, cls: "nodata", label: "no data" });
+        out.push({ cls: "nodata", title: key + " — no data" });
         continue;
       }
       var down = (site.dailyMinutesDown && site.dailyMinutesDown[key]) || 0;
       var cls = down === 0 ? "" : (down < 30 ? "degraded" : "down");
-      var label = down === 0 ? "no downtime" : down + " min down";
-      out.push({ date: key, cls: cls, label: label });
+      out.push({
+        cls: cls,
+        title: key + " — " + (down === 0 ? "no downtime" : down + " min down")
+      });
     }
     return out;
   }
 
+  /* ---------- hourly bars: 24h ---------- */
+
+  // timeline.json lists status CHANGES, not samples: each entry holds until the
+  // next one, and the last holds until now. Turning them into spans first means
+  // an hour's downtime is measured, not guessed from whichever checks happened
+  // to land inside it.
+  function spansFor(slug) {
+    var points = state.timeline && state.timeline.monitors && state.timeline.monitors[slug];
+    if (!points || !points.length) return null;
+    var now = Date.now();
+    var spans = [];
+    for (var i = 0; i < points.length; i++) {
+      var from = Date.parse(points[i].t);
+      if (!isFinite(from)) continue;
+      var to = i + 1 < points.length ? Date.parse(points[i + 1].t) : now;
+      if (to > from) spans.push({ from: from, to: to, s: points[i].s });
+    }
+    return spans.length ? spans : null;
+  }
+
+  function buildHours(site) {
+    var spans = spansFor(site.slug);
+    if (!spans) return null;
+
+    var count = cfg().hours;
+    // Buckets align to the clock hour, so a bar's label is an hour a person
+    // would recognise rather than a rolling "37 minutes ago" window.
+    var edge = new Date();
+    edge.setMinutes(0, 0, 0);
+    var end = edge.getTime() + HOUR;
+
+    var out = [];
+    for (var i = count - 1; i >= 0; i--) {
+      var bStart = end - (i + 1) * HOUR;
+      var bEnd = bStart + HOUR;
+      var covered = 0;
+      var bad = 0;
+
+      for (var j = 0; j < spans.length; j++) {
+        var lo = Math.max(spans[j].from, bStart);
+        var hi = Math.min(spans[j].to, bEnd);
+        if (hi <= lo) continue;
+        covered += hi - lo;
+        if (spans[j].s !== "up") bad += hi - lo;
+      }
+
+      var label = new Date(bStart).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      if (covered === 0) {
+        out.push({ cls: "nodata", title: label + " — no data" });
+      } else if (bad === 0) {
+        out.push({ cls: "", title: label + " — no downtime" });
+      } else {
+        out.push({
+          cls: bad < HOUR_DEGRADED_MS ? "degraded" : "down",
+          title: label + " — " + Math.round(bad / 60000) + " min down"
+        });
+      }
+    }
+    return out;
+  }
+
+  /* ---------- metrics ---------- */
+
   function uptimeFor(site) {
     return site["uptime" + state.range] || site.uptime || "—";
   }
+
+  // Colour the figure by the figure, not by the pip beside it. Those agree on
+  // the all-time view and part ways on short ones: a service that recovered an
+  // hour ago is up now and still had a terrible day, and printing that day's
+  // 22% in the same green as a flawless 100% is the page telling a small lie.
+  function uptimeClass(value) {
+    var n = parseFloat(value);
+    if (!isFinite(n)) return "";
+    if (n >= 99.9) return "ok";
+    return n < 95 ? "bad" : "";
+  }
+
+  // Each window reports only its own figure -- falling back to the all-time
+  // average would print a number from a different period under the 24h label.
+  // A zero is not a measurement either: Upptime writes 0 for a window with no
+  // successful response in it, and "0ms" reads as a broken page rather than as
+  // absent data.
   function timeFor(site) {
-    var v = site["time" + state.range];
-    if (v == null) v = site.time;
-    return v == null ? null : v;
+    var v = state.range ? site["time" + state.range] : site.time;
+    return v ? v : null;
   }
 
   function statusClass(status) {
@@ -556,12 +671,22 @@
 
   function renderCard(site) {
     var cls = statusClass(site.status);
-    var days = buildDays(site);
+    var c = cfg();
+    var bars = c.hours ? buildHours(site) : buildDays(site, c.days);
     var ms = timeFor(site);
 
-    var bars = days.map(function (d) {
-      return '<div class="day ' + d.cls + '" title="' + esc(d.date) + ' — ' + esc(d.label) + '"></div>';
-    }).join("");
+    var strip;
+    if (!bars) {
+      strip = '<div class="strip-note">Hour-by-hour detail isn&rsquo;t available yet.</div>';
+    } else {
+      strip =
+        '<div class="strip" data-bars="' + bars.length + '" role="img" aria-label="' +
+          esc(site.name) + ' status from ' + esc(c.from) + ' to ' + esc(c.to) + '">' +
+          bars.map(function (b) {
+            return '<div class="day ' + b.cls + '" title="' + esc(b.title) + '"></div>';
+          }).join("") +
+        '</div>';
+    }
 
     return '' +
       '<article class="card">' +
@@ -573,16 +698,20 @@
           '<div class="metrics">' +
             '<div>' +
               '<div class="metric-label">Uptime</div>' +
-              '<div class="metric-value ' + (cls ? "" : "ok") + '">' + esc(uptimeFor(site)) + '</div>' +
+              '<div class="metric-value ' + uptimeClass(uptimeFor(site)) + '">' +
+                esc(uptimeFor(site)) + '</div>' +
             '</div>' +
             '<div>' +
               '<div class="metric-label">Response</div>' +
-              '<div class="metric-value">' + (ms == null ? "—" : esc(ms) + '<span class="unit">ms</span>') + '</div>' +
+              '<div class="metric-value">' +
+                (ms == null ? "—" : esc(ms) + '<span class="unit">ms</span>') +
+              '</div>' +
             '</div>' +
           '</div>' +
         '</div>' +
-        '<div class="strip" role="img" aria-label="Daily uptime for the last ' + DAYS + ' days">' + bars + '</div>' +
-        '<div class="strip-legend"><span>' + DAYS + ' days ago</span><span class="mid">today</span></div>' +
+        strip +
+        '<div class="strip-legend"><span>' + esc(c.from) + '</span>' +
+          '<span class="mid">' + esc(c.to) + '</span></div>' +
       '</article>';
   }
 
@@ -627,14 +756,24 @@
       ' The app itself may be fine — this only means the status data could not be read.</div>';
   }
 
-  fetch("summary.json", { cache: "no-store" })
-    .then(function (r) {
-      if (!r.ok) throw new Error("summary.json returned " + r.status);
+  function getJSON(url) {
+    return fetch(url, { cache: "no-store" }).then(function (r) {
+      if (!r.ok) throw new Error(url + " returned " + r.status);
       return r.json();
-    })
-    .then(function (data) {
+    });
+  }
+
+  Promise.all([
+    getJSON("summary.json"),
+    // Optional. Without it the 24h view falls back to a note, but every other
+    // window still works -- a missing timeline must not blank the whole page.
+    getJSON("timeline.json").catch(function () { return null; })
+  ])
+    .then(function (res) {
+      var data = res[0];
       if (!Array.isArray(data) || !data.length) throw new Error("No services are configured.");
       state.sites = data;
+      state.timeline = res[1];
       render();
       var now = new Date();
       el.bannerTime.textContent = "checked " + now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
